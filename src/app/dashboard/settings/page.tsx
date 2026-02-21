@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ type Connection = {
   updated_at: string;
 };
 
-export default function SettingsPage() {
+function SettingsContent() {
   const { session } = useAuth();
   const searchParams = useSearchParams();
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -267,5 +267,21 @@ export default function SettingsPage() {
         </section>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <DashboardLayout>
+          <div className="p-8 flex items-center justify-center min-h-[400px]">
+            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+          </div>
+        </DashboardLayout>
+      }
+    >
+      <SettingsContent />
+    </Suspense>
   );
 }

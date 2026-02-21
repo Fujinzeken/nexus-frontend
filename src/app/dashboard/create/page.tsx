@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import EmojiPicker, { Theme, EmojiStyle } from "emoji-picker-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ import { supabase as supabaseClient } from "@/lib/supabase";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001";
 
-export default function CreatePostPage() {
+function CreatePostContent() {
   const { session } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -489,5 +489,21 @@ export default function CreatePostPage() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function CreatePostPage() {
+  return (
+    <Suspense
+      fallback={
+        <DashboardLayout>
+          <div className="p-8 flex items-center justify-center min-h-[400px]">
+            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+          </div>
+        </DashboardLayout>
+      }
+    >
+      <CreatePostContent />
+    </Suspense>
   );
 }
