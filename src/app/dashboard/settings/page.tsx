@@ -23,7 +23,14 @@ type Connection = {
   platform: string;
   platform_username: string;
   updated_at: string;
+  expires_at: string | null;
 };
+
+// A token with an expires_at in the past can't post. LinkedIn (60-day token,
+// no programmatic refresh on this app) and Twitter (~2h token) both land here
+// once the stored token lapses, so the UI must surface "reconnect needed".
+const isExpired = (c?: Connection) =>
+  !!c && !!c.expires_at && new Date(c.expires_at).getTime() <= Date.now();
 
 function SettingsContent() {
   const { session } = useAuth();
@@ -31,6 +38,7 @@ function SettingsContent() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
 
   const status = searchParams.get("status");
   const platform = searchParams.get("platform");
@@ -73,10 +81,33 @@ function SettingsContent() {
     window.location.href = `${API_URL}/api/auth/linkedin/login?access_token=${session.access_token}`;
   };
 
+  const handleDisconnect = async (platform: string) => {
+    if (!session?.access_token) return;
+    if (!confirm(`Disconnect your ${platform} account?`)) return;
+    setDisconnecting(platform);
+    try {
+      const res = await fetch(`${API_URL}/api/auth/connections/${platform}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) {
+        setConnections((prev) => prev.filter((c) => c.platform !== platform));
+      } else {
+        console.error("Failed to disconnect:", await res.text());
+      }
+    } catch (err) {
+      console.error("Failed to disconnect:", err);
+    } finally {
+      setDisconnecting(null);
+    }
+  };
+
   const isTwitterConnected = connections.find((c) => c.platform === "twitter");
   const isLinkedinConnected = connections.find(
     (c) => c.platform === "linkedin",
   );
+  const isTwitterExpired = isExpired(isTwitterConnected);
+  const isLinkedinExpired = isExpired(isLinkedinConnected);
 
   return (
     <DashboardLayout>
@@ -136,12 +167,19 @@ function SettingsContent() {
                       Twitter / X
                     </h3>
                     {isTwitterConnected ? (
-                      <div className="flex items-center gap-2 text-sm text-emerald-400 font-medium">
-                        <CheckCircle2 size={14} />
-                        <span>
-                          Connected as @{isTwitterConnected.platform_username}
-                        </span>
-                      </div>
+                      isTwitterExpired ? (
+                        <div className="flex items-center gap-2 text-sm text-amber-400 font-medium">
+                          <AlertCircle size={14} />
+                          <span>Token expired — reconnect to keep posting</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-sm text-emerald-400 font-medium">
+                          <CheckCircle2 size={14} />
+                          <span>
+                            Connected as @{isTwitterConnected.platform_username}
+                          </span>
+                        </div>
+                      )
                     ) : (
                       <div className="flex items-center gap-2 text-sm text-slate-400">
                         <AlertCircle size={14} className="text-amber-500" />
@@ -152,11 +190,22 @@ function SettingsContent() {
                 </div>
                 <Button
                   onClick={handleConnectTwitter}
-                  disabled={connecting === "twitter" || !!isTwitterConnected}
-                  className={`${isTwitterConnected ? "bg-slate-800 text-slate-400 cursor-not-allowed" : "bg-white text-slate-900 hover:bg-slate-200 shadow-lg shadow-white/5"} min-w-[140px] font-semibold transition-all`}
+                  disabled={
+                    connecting === "twitter" ||
+                    (!!isTwitterConnected && !isTwitterExpired)
+                  }
+                  className={`${
+                    isTwitterConnected && !isTwitterExpired
+                      ? "bg-slate-800 text-slate-400 cursor-not-allowed"
+                      : isTwitterExpired
+                        ? "bg-amber-500 text-slate-900 hover:bg-amber-400"
+                        : "bg-white text-slate-900 hover:bg-slate-200 shadow-lg shadow-white/5"
+                  } min-w-[140px] font-semibold transition-all`}
                 >
                   {connecting === "twitter" ? (
                     <Loader2 size={18} className="animate-spin" />
+                  ) : isTwitterExpired ? (
+                    "Reconnect"
                   ) : isTwitterConnected ? (
                     "Connected"
                   ) : (
@@ -169,7 +218,13 @@ function SettingsContent() {
 
             {/* LinkedIn Card */}
             <Card
-              className={`border-none shadow-lg bg-linear-to-r backdrop-blur-sm ring-1 overflow-hidden group transition-all duration-500 ${isLinkedinConnected ? "from-indigo-900/20 to-slate-900/50 ring-indigo-500/30" : "bg-slate-900/50 ring-white/10 hover:ring-indigo-500/30"}`}
+              className={`border-none shadow-lg bg-linear-to-r backdrop-blur-sm ring-1 overflow-hidden group transition-all duration-500 ${
+                isLinkedinExpired
+                  ? "from-amber-900/20 to-slate-900/50 ring-amber-500/40"
+                  : isLinkedinConnected
+                    ? "from-indigo-900/20 to-slate-900/50 ring-indigo-500/30"
+                    : "bg-slate-900/50 ring-white/10 hover:ring-indigo-500/30"
+              }`}
             >
               <div className="flex flex-col md:flex-row md:items-center justify-between p-6 gap-6">
                 <div className="flex items-center gap-5">
@@ -181,10 +236,17 @@ function SettingsContent() {
                   <div className="space-y-1">
                     <h3 className="text-lg font-bold text-white">LinkedIn</h3>
                     {isLinkedinConnected ? (
-                      <div className="flex items-center gap-2 text-sm text-emerald-400 font-medium">
-                        <CheckCircle2 size={14} />
-                        <span>Connected</span>
-                      </div>
+                      isLinkedinExpired ? (
+                        <div className="flex items-center gap-2 text-sm text-amber-400 font-medium">
+                          <AlertCircle size={14} />
+                          <span>Token expired — reconnect to keep posting</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-sm text-emerald-400 font-medium">
+                          <CheckCircle2 size={14} />
+                          <span>Connected</span>
+                        </div>
+                      )
                     ) : (
                       <div className="flex items-center gap-2 text-sm text-slate-400">
                         <AlertCircle size={14} className="text-amber-500" />
@@ -197,16 +259,32 @@ function SettingsContent() {
                   {isLinkedinConnected ? (
                     <>
                       <Button
+                        onClick={handleConnectLinkedin}
+                        disabled={connecting === "linkedin"}
                         variant="outline"
-                        className="border-white/10 text-slate-300 hover:bg-white/5 hover:text-white"
+                        className={
+                          isLinkedinExpired
+                            ? "bg-amber-500 text-slate-900 border-none hover:bg-amber-400 font-semibold min-w-[140px]"
+                            : "border-white/10 text-slate-300 hover:bg-white/5 hover:text-white"
+                        }
                       >
-                        Reconnect
+                        {connecting === "linkedin" ? (
+                          <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                          "Reconnect"
+                        )}
                       </Button>
                       <Button
+                        onClick={() => handleDisconnect("linkedin")}
+                        disabled={disconnecting === "linkedin"}
                         variant="ghost"
                         className="text-red-400 hover:bg-red-500/10 hover:text-red-300"
                       >
-                        Disconnect
+                        {disconnecting === "linkedin" ? (
+                          <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                          "Disconnect"
+                        )}
                       </Button>
                     </>
                   ) : (

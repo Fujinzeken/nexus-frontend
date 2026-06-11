@@ -48,6 +48,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001";
 export default function DashboardPage() {
   const { session, user } = useAuth();
   const [posts, setPosts] = useState<any[]>([]);
+  const [connections, setConnections] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeFilter, setTimeFilter] = useState("all"); // '7d' | '28d' | '90d' | 'all'
   const router = useRouter();
@@ -73,6 +74,36 @@ export default function DashboardPage() {
     }
     fetchPosts();
   }, [session]);
+
+  useEffect(() => {
+    async function fetchConnections() {
+      if (!session?.access_token) return;
+      try {
+        const res = await fetch(`${API_URL}/api/auth/connections`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) setConnections(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch connections:", err);
+      }
+    }
+    fetchConnections();
+  }, [session]);
+
+  // Derive live connection state so Quick Connect reflects expired tokens
+  // instead of a hardcoded "Active" label.
+  const connectionState = (
+    platform: string,
+  ): "disconnected" | "connected" | "expired" => {
+    const c = connections.find((x) => x.platform === platform);
+    if (!c) return "disconnected";
+    if (c.expires_at && new Date(c.expires_at).getTime() <= Date.now())
+      return "expired";
+    return "connected";
+  };
 
   const handlePostDelete = async (postId: string) => {
     if (!session?.access_token) return;
@@ -402,54 +433,82 @@ export default function DashboardPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/50 border border-white/5 hover:bg-slate-800 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-[#1DA1F2]/20 rounded-lg">
-                      <Twitter className="w-5 h-5 text-[#1DA1F2] fill-current" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-sm text-slate-200">
-                        Twitter
-                      </p>
-                      <p className="text-xs text-slate-500">Not Connected</p>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-indigo-400 font-semibold hover:bg-indigo-500/10 hover:text-indigo-300"
-                  >
-                    Connect
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/50 border border-white/5 hover:bg-slate-800 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-[#0077b5]/20 rounded-lg">
-                      <Linkedin className="w-5 h-5 text-[#0077b5] fill-current" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-sm text-slate-200">
-                        LinkedIn
-                      </p>
-                      <p className="text-xs text-emerald-500 font-medium">
-                        Active
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-indigo-400 font-semibold hover:bg-indigo-500/10 hover:text-indigo-300"
-                  >
-                    Manage
-                  </Button>
-                </div>
+                <QuickConnectRow
+                  platform="twitter"
+                  state={connectionState("twitter")}
+                />
+                <QuickConnectRow
+                  platform="linkedin"
+                  state={connectionState("linkedin")}
+                />
               </CardContent>
             </Card>
           </div>
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+function QuickConnectRow({
+  platform,
+  state,
+}: {
+  platform: "twitter" | "linkedin";
+  state: "disconnected" | "connected" | "expired";
+}) {
+  const isTwitter = platform === "twitter";
+  const label = isTwitter ? "Twitter" : "LinkedIn";
+  const statusText =
+    state === "connected"
+      ? "Active"
+      : state === "expired"
+        ? "Reconnect needed"
+        : "Not Connected";
+  const statusClass =
+    state === "connected"
+      ? "text-emerald-500"
+      : state === "expired"
+        ? "text-amber-500"
+        : "text-slate-500";
+  const action =
+    state === "connected"
+      ? "Manage"
+      : state === "expired"
+        ? "Reconnect"
+        : "Connect";
+
+  return (
+    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/50 border border-white/5 hover:bg-slate-800 transition-colors">
+      <div className="flex items-center gap-3">
+        <div
+          className={`p-2.5 rounded-lg ${isTwitter ? "bg-[#1DA1F2]/20" : "bg-[#0077b5]/20"}`}
+        >
+          {isTwitter ? (
+            <Twitter className="w-5 h-5 text-[#1DA1F2] fill-current" />
+          ) : (
+            <Linkedin className="w-5 h-5 text-[#0077b5] fill-current" />
+          )}
+        </div>
+        <div>
+          <p className="font-semibold text-sm text-slate-200">{label}</p>
+          <p className={`text-xs font-medium ${statusClass}`}>{statusText}</p>
+        </div>
+      </div>
+      <Link href="/dashboard/settings">
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`font-semibold ${
+            state === "expired"
+              ? "text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+              : "text-indigo-400 hover:bg-indigo-500/10 hover:text-indigo-300"
+          }`}
+        >
+          {action}
+        </Button>
+      </Link>
+    </div>
   );
 }
 
